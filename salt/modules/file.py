@@ -137,6 +137,26 @@ def _get_bkroot():
     return os.path.join(__salt__['config.get']('cachedir'), 'file_backup')
 
 
+def _splitlines_preserving_trailing_newline(str):
+    '''
+    Returns a list of the lines in the string, breaking at line boundaries and
+    preserving a trailing newline (if present).
+
+    Essentially, this works like ``str.striplines(False)`` but preserves an
+    empty line at the end. This is equivalent to the following code:
+
+    .. code-block:: python
+
+        lines = str.splitlines()
+        if str.endswith('\n') or str.endswith('\r'):
+            lines.append('')
+    '''
+    lines = str.splitlines()
+    if str.endswith('\n') or str.endswith('\r'):
+        lines.append('')
+    return lines
+
+
 def gid_to_group(gid):
     '''
     Convert the group id to the group name on this system
@@ -555,8 +575,6 @@ def get_source_sum(file_name='',
         Optional file name being managed, for matching with
         :py:func:`file.extract_hash <salt.modules.file.extract_hash>`.
 
-        .. versionadded:: 2016.11.0
-
     source
         Source file, as used in :py:mod:`file <salt.states.file>` and other
         states. If ``source_hash`` refers to a file containing hashes, then
@@ -574,8 +592,6 @@ def get_source_sum(file_name='',
     source_hash_name
         Specific file name to look for when ``source_hash`` refers to a remote
         file, used to disambiguate ambiguous matches.
-
-        .. versionadded:: 2016.11.0
 
     saltenv : base
         Salt fileserver environment from which to retrive the source_hash. This
@@ -687,31 +703,54 @@ def check_hash(path, file_hash):
     '''
     Check if a file matches the given hash string
 
-    Returns true if the hash matched, otherwise false. Raises ValueError if
-    the hash was not formatted correctly.
+    Returns ``True`` if the hash matches, otherwise ``False``.
 
     path
-        A file path
+        Path to a file local to the minion.
+
     hash
-        A string in the form <hash_type>:<hash_value>. For example:
-        ``md5:e138491e9d5b97023cea823fe17bac22``
+        The hash to check against the file specified in the ``path`` argument.
+        For versions 2016.11.4 and newer, the hash can be specified without an
+        accompanying hash type (e.g. ``e138491e9d5b97023cea823fe17bac22``),
+        but for earlier releases it is necessary to also specify the hash type
+        in the format ``<hash_type>:<hash_value>`` (e.g.
+        ``md5:e138491e9d5b97023cea823fe17bac22``).
 
     CLI Example:
 
     .. code-block:: bash
 
-        salt '*' file.check_hash /etc/fstab md5:<md5sum>
+        salt '*' file.check_hash /etc/fstab e138491e9d5b97023cea823fe17bac22
+        salt '*' file.check_hash /etc/fstab md5:e138491e9d5b97023cea823fe17bac22
     '''
     path = os.path.expanduser(path)
 
-    hash_parts = file_hash.split(':', 1)
-    if len(hash_parts) != 2:
-        # Support "=" for backward compatibility.
-        hash_parts = file_hash.split('=', 1)
-        if len(hash_parts) != 2:
-            raise ValueError('Bad hash format: \'{0}\''.format(file_hash))
-    hash_form, hash_value = hash_parts
-    return get_hash(path, hash_form) == hash_value
+    if not isinstance(file_hash, six.string_types):
+        raise SaltInvocationError('hash must be a string')
+
+    for sep in (':', '='):
+        if sep in file_hash:
+            hash_type, hash_value = file_hash.split(sep, 1)
+            break
+    else:
+        hash_value = file_hash
+        hash_len = len(file_hash)
+        hash_type = HASHES_REVMAP.get(hash_len)
+        if hash_type is None:
+            raise SaltInvocationError(
+                'Hash {0} (length: {1}) could not be matched to a supported '
+                'hash type. The supported hash types and lengths are: '
+                '{2}'.format(
+                    file_hash,
+                    hash_len,
+                    ', '.join(
+                        ['{0} ({1})'.format(HASHES_REVMAP[x], x)
+                         for x in sorted(HASHES_REVMAP)]
+                    ),
+                )
+            )
+
+    return get_hash(path, hash_type) == hash_value
 
 
 def find(path, *args, **kwargs):
@@ -1814,8 +1853,10 @@ def line(path, content, match=None, mode=None, location=None,
     if changed:
         if show_changes:
             with salt.utils.fopen(path, 'r') as fp_:
-                path_content = fp_.read().splitlines()
-            changes_diff = ''.join(difflib.unified_diff(path_content, body.splitlines()))
+                path_content = _splitlines_preserving_trailing_newline(
+                    fp_.read())
+            changes_diff = ''.join(difflib.unified_diff(
+                path_content, _splitlines_preserving_trailing_newline(body)))
         if __opts__['test'] is False:
             fh_ = None
             try:
@@ -2186,8 +2227,8 @@ def replace(path,
         check_perms(path, None, pre_user, pre_group, pre_mode)
 
     if show_changes:
-        orig_file_as_str = ''.join([salt.utils.to_str(x) for x in orig_file])
-        new_file_as_str = ''.join([salt.utils.to_str(x) for x in new_file])
+        orig_file_as_str = [salt.utils.to_str(x) for x in orig_file]
+        new_file_as_str = [salt.utils.to_str(x) for x in new_file]
         return ''.join(difflib.unified_diff(orig_file_as_str, new_file_as_str))
 
     return has_changes
@@ -3745,13 +3786,13 @@ def get_managed(
         if cached_dest and (source_hash or skip_verify):
             htype = source_sum.get('hash_type', 'sha256')
             cached_sum = get_hash(cached_dest, form=htype)
-            if cached_sum != source_sum['hsum']:
-                cache_refetch = True
-            elif skip_verify:
+            if skip_verify:
                 # prev: if skip_verify or cached_sum == source_sum['hsum']:
                 # but `cached_sum == source_sum['hsum']` is elliptical as prev if
                 sfn = cached_dest
                 source_sum = {'hsum': cached_sum, 'hash_type': htype}
+            elif cached_sum != source_sum.get('hsum', __opts__['hash_type']):
+                cache_refetch = True
 
         # If we didn't have the template or remote file, let's get it
         # Similarly when the file has been updated and the cache has to be refreshed
@@ -4304,7 +4345,7 @@ def check_managed_changes(
             if _urlparse(source).scheme in ('salt', 'file') \
                     or source.startswith('/'):
                 try:
-                    mode = salt.utils.st_mode_to_octal(os.stat(sfn).st_mode)
+                    mode = __salt__['cp.stat_file'](source, saltenv=saltenv, octal=True)
                 except Exception as exc:
                     log.warning('Unable to stat %s: %s', sfn, exc)
     changes = check_file_meta(name, sfn, source, source_sum, user,
@@ -4402,7 +4443,8 @@ def check_file_meta(
         tmp = salt.utils.mkstemp(prefix=salt.utils.files.TEMPFILE_PREFIX,
                                  text=True)
         if salt.utils.is_windows():
-            contents = os.linesep.join(contents.splitlines())
+            contents = os.linesep.join(
+                _splitlines_preserving_trailing_newline(contents))
         with salt.utils.fopen(tmp, 'w') as tmp_:
             tmp_.write(str(contents))
         # Compare the static contents with the named file
@@ -4561,6 +4603,13 @@ def manage_file(name,
         a local file on the minion), the mode of the destination file will be
         set to the mode of the source file.
 
+        .. note:: keep_mode does not work with salt-ssh.
+
+            As a consequence of how the files are transfered to the minion, and
+            the inability to connect back to the master with salt-ssh, salt is
+            unable to stat the file as it exists on the fileserver and thus
+            cannot mirror the mode on the salt-ssh minion
+
     CLI Example:
 
     .. code-block:: bash
@@ -4585,7 +4634,7 @@ def manage_file(name,
         if not sfn:
             return _error(
                 ret, 'Source file \'{0}\' not found'.format(source))
-        htype = source_sum.get('hash_type', __opts__.get('hash_type', 'md5'))
+        htype = source_sum.get('hash_type', __opts__['hash_type'])
         # Recalculate source sum now that file has been cached
         source_sum = {
             'hash_type': htype,
@@ -4595,7 +4644,7 @@ def manage_file(name,
             if _urlparse(source).scheme in ('salt', 'file') \
                     or source.startswith('/'):
                 try:
-                    mode = salt.utils.st_mode_to_octal(os.stat(sfn).st_mode)
+                    mode = __salt__['cp.stat_file'](source, saltenv=saltenv, octal=True)
                 except Exception as exc:
                     log.warning('Unable to stat %s: %s', sfn, exc)
 
@@ -4608,12 +4657,12 @@ def manage_file(name,
 
         # Only test the checksums on files with managed contents
         if source and not (not follow_symlinks and os.path.islink(real_name)):
-            name_sum = get_hash(real_name, source_sum.get('hash_type', __opts__.get('hash_type', 'md5')))
+            name_sum = get_hash(real_name, source_sum.get('hash_type', __opts__['hash_type']))
         else:
             name_sum = None
 
         # Check if file needs to be replaced
-        if source and (name_sum is None or source_sum.get('hsum', __opts__.get('hash_type', 'md5')) != name_sum):
+        if source and (name_sum is None or source_sum.get('hsum', __opts__['hash_type']) != name_sum):
             if not sfn:
                 sfn = __salt__['cp.cache_file'](source, saltenv)
             if not sfn:
@@ -4677,7 +4726,8 @@ def manage_file(name,
             tmp = salt.utils.mkstemp(prefix=salt.utils.files.TEMPFILE_PREFIX,
                                      text=True)
             if salt.utils.is_windows():
-                contents = os.linesep.join(contents.splitlines())
+                contents = os.linesep.join(
+                    _splitlines_preserving_trailing_newline(contents))
             with salt.utils.fopen(tmp, 'w') as tmp_:
                 tmp_.write(str(contents))
 
@@ -4862,7 +4912,8 @@ def manage_file(name,
             tmp = salt.utils.mkstemp(prefix=salt.utils.files.TEMPFILE_PREFIX,
                                      text=True)
             if salt.utils.is_windows():
-                contents = os.linesep.join(contents.splitlines())
+                contents = os.linesep.join(
+                    _splitlines_preserving_trailing_newline(contents))
             with salt.utils.fopen(tmp, 'w') as tmp_:
                 tmp_.write(str(contents))
             # Copy into place
@@ -5701,7 +5752,7 @@ def pardir():
 
     This can be useful when constructing Salt Formulas.
 
-    .. code-block:: yaml
+    .. code-block:: jinja
 
         {% set pardir = salt['file.pardir']() %}
         {% set final_path = salt['file.join']('subdir', pardir, 'confdir') %}
@@ -5723,7 +5774,7 @@ def normpath(path):
 
     This can be useful at the CLI but is frequently useful when scripting.
 
-    .. code-block:: yaml
+    .. code-block:: jinja
 
         {%- from salt['file.normpath'](tpldir + '/../vars.jinja') import parent_vars %}
 
@@ -5744,7 +5795,7 @@ def basename(path):
 
     This can be useful at the CLI but is frequently useful when scripting.
 
-    .. code-block:: yaml
+    .. code-block:: jinja
 
         {%- set filename = salt['file.basename'](source_file) %}
 
@@ -5765,7 +5816,7 @@ def dirname(path):
 
     This can be useful at the CLI but is frequently useful when scripting.
 
-    .. code-block:: yaml
+    .. code-block:: jinja
 
         {%- from salt['file.dirname'](tpldir) + '/vars.jinja' import parent_vars %}
 
@@ -5787,7 +5838,7 @@ def join(*args):
     This can be useful at the CLI but is frequently useful when scripting
     combining path variables:
 
-    .. code-block:: yaml
+    .. code-block:: jinja
 
         {% set www_root = '/var' %}
         {% set app_dir = 'myapp' %}

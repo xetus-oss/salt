@@ -100,10 +100,10 @@ class LocalFSTest(TestCase):
     @patch('os.path.isfile', MagicMock(return_value=False))
     def test_fetch_return_when_cache_file_does_not_exist(self):
         '''
-        Tests that the fetch function returns None when the cache key file doesn't
-        exist.
+        Tests that the fetch function returns an empty dic when the cache key file
+        doesn't exist.
         '''
-        self.assertIsNone(localfs.fetch(bank='', key='', cachedir=''))
+        self.assertEqual(localfs.fetch(bank='', key='', cachedir=''), {})
 
     @patch('os.path.isfile', MagicMock(return_value=True))
     @patch('salt.utils.fopen', MagicMock(side_effect=IOError))
@@ -209,29 +209,29 @@ class LocalFSTest(TestCase):
         '''
         self.assertRaises(SaltCacheError, localfs.flush, bank='', key='key', cachedir='/var/cache/salt')
 
-    # 'list' function tests: 3
+    # 'ls' function tests: 3
 
     @patch('os.path.isdir', MagicMock(return_value=False))
-    def test_list_no_base_dir(self):
+    def test_ls_no_base_dir(self):
         '''
-        Tests that the list function returns an empty list if the bank directory
+        Tests that the ls function returns an empty list if the bank directory
         doesn't exist.
         '''
-        self.assertEqual(localfs.list_(bank='', cachedir=''), [])
+        self.assertEqual(localfs.ls(bank='', cachedir=''), [])
 
     @patch('os.path.isdir', MagicMock(return_value=True))
     @patch('os.listdir', MagicMock(side_effect=OSError))
-    def test_list_error_raised_no_bank_directory_access(self):
+    def test_ls_error_raised_no_bank_directory_access(self):
         '''
         Tests that a SaltCacheError is raised when there is a problem accessing the
         cache bank directory.
         '''
-        self.assertRaises(SaltCacheError, localfs.list_, bank='', cachedir='')
+        self.assertRaises(SaltCacheError, localfs.ls, bank='', cachedir='')
 
     @destructiveTest
-    def test_list_success(self):
+    def test_ls_success(self):
         '''
-        Tests the return of the list function containing bank entries.
+        Tests the return of the ls function containing bank entries.
         '''
         # Create a temporary cache dir
         tmp_dir = tempfile.mkdtemp(dir=integration.SYS_TMP_DIR)
@@ -239,9 +239,9 @@ class LocalFSTest(TestCase):
         # Use the helper function to create the cache file using localfs.store()
         self._create_tmp_cache_file(tmp_dir, salt.payload.Serial(self))
 
-        # Now test the return of the list function
+        # Now test the return of the ls function
         with patch.dict(localfs.__opts__, {'cachedir': tmp_dir}):
-            self.assertEqual(localfs.list_(bank='bank', cachedir=tmp_dir), ['key'])
+            self.assertEqual(localfs.ls(bank='bank', cachedir=tmp_dir), ['key'])
 
     # 'contains' function tests: 1
 

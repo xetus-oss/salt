@@ -40,6 +40,33 @@ Default: ``salt``
 
     master: salt
 
+master:port Syntax
+~~~~~~~~~~~~~~~~~~
+
+.. versionadded:: 2015.8.0
+
+The ``master`` config option can also be set to use the master's IP in
+conjunction with a port number by default.
+
+.. code-block:: yaml
+
+    master: localhost:1234
+
+For IPv6 formatting with a port, remember to add brackets around the IP address
+before adding the port and enclose the line in single quotes to make it a string:
+
+.. code-block:: yaml
+
+    master: '[2001:db8:85a3:8d3:1319:8a2e:370:7348]:1234'
+
+.. note::
+
+    If a port is specified in the ``master`` as well as :conf_minion:`master_port`,
+    the ``master_port`` setting will be overridden by the ``master`` configuration.
+
+List of Masters Syntax
+~~~~~~~~~~~~~~~~~~~~~~
+
 The option can can also be set to a list of masters, enabling
 :ref:`multi-master <tutorial-multi-master>` mode.
 
@@ -81,13 +108,30 @@ The option can can also be set to a list of masters, enabling
 ``ipv6``
 --------
 
-Default: ``False``
+Default: ``None``
 
-Whether the master should be connected over IPv6.
+Whether the master should be connected over IPv6. By default salt minion
+will try to automatically detect IPv6 connectivity to master.
 
 .. code-block:: yaml
 
     ipv6: True
+
+.. conf_minion:: master_uri_format
+
+``master_uri_format``
+---------------------
+
+.. versionadded:: 2015.8.0
+
+Specify the format in which the master address will be evaluated. Valid options
+are ``default`` or ``ip_only``. If ``ip_only`` is specified, then the master
+address will not be split into IP and PORT, so be sure that only an IP (or domain
+name) is set in the :conf_minion:`master` configuration setting.
+
+.. code-block:: yaml
+
+    master_uri_format: ip_only
 
 .. conf_minion:: master_type
 
@@ -205,9 +249,10 @@ to the next master in the list if it finds the existing one is dead.
 
 Default: ``False``
 
-If :conf_minion:`master` is a list of addresses and :conf_minion`master_type` is ``failover``, shuffle them before trying to
-connect to distribute the minions over all available masters. This uses
-Python's :func:`random.shuffle <python2:random.shuffle>` method.
+If :conf_minion:`master` is a list of addresses and :conf_minion`master_type`
+is ``failover``, shuffle them before trying to connect to distribute the
+minions over all available masters. This uses Python's :func:`random.shuffle
+<python2:random.shuffle>` method.
 
 .. code-block:: yaml
 
@@ -220,9 +265,10 @@ Python's :func:`random.shuffle <python2:random.shuffle>` method.
 
 Default: ``False``
 
-If :conf_minion:`master` is a list of addresses, shuffle them before trying to
-connect to distribute the minions over all available masters. This uses
-Python's :func:`random.randint <python2:random.randint>` method.
+If :conf_minion:`master` is a list of addresses, and :conf_minion`master_type`
+is set to ``failover`` shuffle them before trying to connect to distribute the
+minions over all available masters. This uses Python's :func:`random.shuffle
+<python2:random.shuffle>` method.
 
 .. code-block:: yaml
 
@@ -2075,6 +2121,20 @@ master. If not, check for debug log level and that the necessary version of
 ZeroMQ is installed.
 
 .. conf_minion:: failhard
+
+``tcp_authentication_retries``
+------------------------------
+
+Default: ``5``
+
+The number of times to retry authenticating with the salt master when it comes
+back online.
+
+Zeromq does a lot to make sure when connections come back online that they
+reauthenticate. The tcp transport should try to connect with a new connection
+if the old one times out on reauthenticating.
+
+`-1` for infinite tries.
 
 ``failhard``
 ------------

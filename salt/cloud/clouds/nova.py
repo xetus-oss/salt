@@ -38,8 +38,6 @@ examples could be set up in the cloud configuration at
 .. code-block:: yaml
 
     my-openstack-config:
-      # The ID of the minion that will execute the salt nova functions
-      auth_minion: myminion
       # The name of the configuration profile to use on said minion
       config_profile: my_openstack_profile
 
@@ -647,12 +645,17 @@ def request_instance(vm_=None, call=None):
                 kwargs['files'][src_path] = files[src_path]
 
     userdata_file = config.get_cloud_config_value(
-        'userdata_file', vm_, __opts__, search_global=False
+        'userdata_file', vm_, __opts__, search_global=False, default=None
     )
-
     if userdata_file is not None:
-        with salt.utils.fopen(userdata_file, 'r') as fp:
-            kwargs['userdata'] = fp.read()
+        try:
+            with salt.utils.fopen(userdata_file, 'r') as fp_:
+                kwargs['userdata'] = salt.utils.cloud.userdata_template(
+                    __opts__, vm_, fp_.read()
+                )
+        except Exception as exc:
+            log.exception(
+                'Failed to read userdata from %s: %s', userdata_file, exc)
 
     kwargs['config_drive'] = config.get_cloud_config_value(
         'config_drive', vm_, __opts__, search_global=False
@@ -886,6 +889,8 @@ def create(vm_):
             )
             for private_ip in private:
                 private_ip = preferred_ip(vm_, [private_ip])
+                if private_ip is False:
+                    continue
                 if salt.utils.cloud.is_public_ip(private_ip):
                     log.warning('{0} is a public IP'.format(private_ip))
                     data.public_ips.append(private_ip)

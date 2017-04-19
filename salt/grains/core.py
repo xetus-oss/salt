@@ -865,6 +865,8 @@ def _ps(osdata):
         )
     elif osdata['os_family'] == 'Debian':
         grains['ps'] = 'ps -efHww'
+    elif osdata['os_family'] == 'AIX':
+        grains['ps'] = '/usr/bin/ps auxww'
     else:
         grains['ps'] = 'ps -efH'
     return grains
@@ -1688,6 +1690,8 @@ def ip_fqdn():
                 info = socket.getaddrinfo(_fqdn, None, socket_type)
                 ret[key] = list(set(item[4][0] for item in info))
             except socket.error:
+                log.warning('Unable to find IPv{0} record for "{1}" causing a 10 second timeout when rendering grains. '
+                            'Set the dns or /etc/hosts for IPv{0} to clear this.'.format(ipv_num, _fqdn))
                 ret[key] = []
 
     return ret

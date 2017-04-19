@@ -12,7 +12,7 @@ A REST API for Salt
       SSL is enabled, since this version worked the best with SSL in
       internal testing. Versions 3.2.3 - 4.x can be used if SSL is not enabled.
       Be aware that there is a known
-      `SSL error <https://bitbucket.org/cherrypy/cherrypy/issue/1298/ssl-not-working>`_
+      `SSL error <https://github.com/cherrypy/cherrypy/issues/1298>`_
       introduced in version 3.2.5. The issue was reportedly resolved with
       CherryPy milestone 3.3, but the patch was committed for version 3.6.1.
 :optdepends:    - ws4py Python module for websockets support.
@@ -1319,16 +1319,9 @@ class Jobs(LowDataAdapter):
         '''
         lowstate = [{
             'client': 'runner',
-            'fun': 'jobs.lookup_jid' if jid else 'jobs.list_jobs',
+            'fun': 'jobs.list_job' if jid else 'jobs.list_jobs',
             'jid': jid,
         }]
-
-        if jid:
-            lowstate.append({
-                'client': 'runner',
-                'fun': 'jobs.list_job',
-                'jid': jid,
-            })
 
         cherrypy.request.lowstate = lowstate
         job_ret_info = list(self.exec_lowstate(
@@ -1336,12 +1329,18 @@ class Jobs(LowDataAdapter):
 
         ret = {}
         if jid:
-            job_ret, job_info = job_ret_info
-            ret['info'] = [job_info]
+            ret['info'] = [job_ret_info[0]]
+            minion_ret = {}
+            returns = job_ret_info[0].get('Result')
+            for minion in returns.keys():
+                if u'return' in returns[minion]:
+                    minion_ret[minion] = returns[minion].get(u'return')
+                else:
+                    minion_ret[minion] = returns[minion].get('return')
+            ret['return'] = [minion_ret]
         else:
-            job_ret = job_ret_info[0]
+            ret['return'] = [job_ret_info[0]]
 
-        ret['return'] = [job_ret]
         return ret
 
 
@@ -2387,7 +2386,7 @@ class Webhook(object):
 
         And finally deploy the new build:
 
-        .. code-block:: yaml
+        .. code-block:: jinja
 
             {% set secret_key = data.get('headers', {}).get('X-My-Secret-Key') %}
             {% set build = data.get('post', {}) %}

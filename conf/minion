@@ -647,6 +647,10 @@
 ###########################################
 # Disable multiprocessing support, by default when a minion receives a
 # publication a new process is spawned and the command is executed therein.
+#
+# WARNING: Disabling multiprocessing may result in substantial slowdowns
+# when processing large pillars. See https://github.com/saltstack/salt/issues/38758
+# for a full explanation.
 #multiprocessing: True
 
 
@@ -730,6 +734,10 @@
 # ZeroMQ is installed.
 #
 #zmq_monitor: False
+
+# Number of times to try to authenticate with the salt master when reconnecting
+# to the master
+#tcp_authentication_retries: 5
 
 ######      Module configuration      #####
 ###########################################
