@@ -141,6 +141,7 @@ def orchestrate_high(data, test=None, queue=False, pillar=None, **kwargs):
     __jid_event__.fire_event({'data': ret, 'outputter': 'highstate'}, 'progress')
     return ret
 
+
 def orchestrate_show_sls(mods,
                          saltenv='base',
                          test=None,
@@ -180,6 +181,7 @@ def orchestrate_show_sls(mods,
     return ret
 
 orch_show_sls = salt.utils.alias_function(orchestrate_show_sls, 'orch_show_sls')
+
 
 def event(tagmatch='*',
         count=-1,
